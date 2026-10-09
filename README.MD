@@ -20,3 +20,6 @@ python haven.py
 | Pause | Esc |
 | Quit to menu (while paused) | Q |
 | Select (menus) | Enter |
+## Saving
+
+Your high score and best level are saved automatically: in `save.json` next to the game when run locally, or in your browser's storage on the web version.

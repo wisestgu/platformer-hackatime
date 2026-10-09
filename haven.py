@@ -1,6 +1,11 @@
 import sys
 import pygame
 import asyncio
+import os
+import json
+
+SAVE_KEY = "haven_hopper_save"
+SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save.json")
 WIDTH,HEIGHT=960,540
 FPS=60
 TILE=40
@@ -68,6 +73,34 @@ def make_sound(freq, ms, volume=0.3):
         return pygame.mixer.Sound(buffer=buf)
     except Exception:
         return None
+
+def load_save():
+    default = {"high_score": 0, "best_level": 1}
+    try:
+        if sys.platform == "emscripten":  # browser build: use localStorage
+            import platform
+            raw = platform.window.localStorage.getItem(SAVE_KEY)
+        else:
+            with open(SAVE_FILE) as f:
+                raw = f.read()
+        data = json.loads(raw) if raw else {}
+        return {"high_score": int(data.get("high_score", 0)), "best_level": int(data.get("best_level", 1))}
+    except Exception:
+        return default
+
+
+def write_save(data):
+    try:
+        raw = json.dumps(data)
+        if sys.platform == "emscripten":
+            import platform
+            platform.window.localStorage.setItem(SAVE_KEY, raw)
+        else:
+            with open(SAVE_FILE, "w") as f:
+                f.write(raw)
+    except Exception:
+        pass  # saving failed, game still works
+
 
 class Player(pygame.sprite.Sprite):
     def __init__(self,x,y):
@@ -171,6 +204,15 @@ class Game:
         self.flag = None
         self.player = None
         self.cam_x = 0
+        self.save = load_save()
+        self.new_record = False
+
+    def record_score(self):
+        self.new_record = self.score > self.save["high_score"]
+        if self.new_record:
+            self.save["high_score"] = self.score
+        self.save["best_level"] = max(self.save["best_level"], min(self.level_index + 1, len(LEVELS)))
+        write_save(self.save)
 
     def play(self, name):
         s = self.snd.get(name)
@@ -212,6 +254,7 @@ class Game:
         self.lives -= 1
         if self.lives <= 0:
             self.state = "gameover"
+            self.record_score()
         else:
             self.load_level(self.level_index)
 
@@ -287,6 +330,7 @@ class Game:
             self.level_index += 1
             if self.level_index >= len(LEVELS):
                 self.state = "win"
+                self.record_score()
             else:
                 self.load_level(self.level_index)
             return
@@ -335,6 +379,7 @@ class Game:
             for i, label in enumerate(["Play", "Quit"]):
                 color = COIN_C if i == self.menu_index else WHITE
                 self.text(("> " if i == self.menu_index else "") + label, self.font, 280 + i * 50, color)
+            self.text(f"High score: {self.save['high_score']}   Best level: {self.save['best_level']}", self.font, 400, COIN_C)
             self.text("Arrows/WASD move - Space jump - Esc pause", self.font, 460, (180, 180, 200))
         elif self.state == "play":
             self.draw_world()
@@ -346,12 +391,20 @@ class Game:
             self.screen.fill((40, 0, 0))
             self.text("GAME OVER", self.big, 200, ENEMY_C)
             self.text(f"Score: {self.score}", self.font, 290)
-            self.text("Press Enter", self.font, 360)
+            self.draw_record()
+            self.text("Press Enter", self.font, 400)
         elif self.state == "win":
             self.screen.fill((0, 50, 30))
             self.text("YOU WIN!", self.big, 200, FLAG_C)
             self.text(f"Final score: {self.score}", self.font, 290)
-            self.text("Press Enter", self.font, 360)
+            self.draw_record()
+            self.text("Press Enter", self.font, 400)
+
+    def draw_record(self):
+        if self.new_record:
+            self.text("NEW HIGH SCORE!", self.font, 340, COIN_C)
+        else:
+            self.text(f"High score: {self.save['high_score']}", self.font, 340)
 
 
 if __name__ == "__main__":
