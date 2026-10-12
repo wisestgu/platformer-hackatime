@@ -12,6 +12,8 @@ TILE=40
 GRAVITY=0.8
 JUMP_SPEED=-15
 MOVE_SPEED=5
+COYOTE_TIME = 0.12
+JUMP_BUFFER_TIME=0.12
 
 LEVELS = [
     [
@@ -111,13 +113,20 @@ class Player(pygame.sprite.Sprite):
         self.rect=self.image.get_rect(topleft=(x,y)) 
         self.vel=pygame.Vector2(0,0)
         self.on_ground = False
-    def update(self,keys,walls):
+        self.jumps_left =2
+        self.coyote_timer =0.0
+        self.jump_buffer =0.0
+    def update(self,keys,walls,dt=1/60):
         self.vel.x=0
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             self.vel.x=-MOVE_SPEED   
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
             self.vel.x = MOVE_SPEED
         self.vel.y = min(self.vel.y + GRAVITY, 18)
+        self.coyote_timer=COYOTE_TIME if self.on_ground else max(0.0, self.coyote_timer-dt)
+        self.jump_buffer=max(0.0,self.jump_buffer-dt)
+        if self.jump_buffer > 0 and (self.on_ground or self.coyote_timer > 0 or self.jumps_left >0):
+            self._perform_jump()
 
         self.rect.x += self.vel.x
         for w in walls:
@@ -140,11 +149,25 @@ class Player(pygame.sprite.Sprite):
         if self.rect.left < 0:
              self.rect.left = 0                         
 
-    def jump(self):
-        if self.on_ground:
-              self.vel.y = JUMP_SPEED
-              return True
-        return False
+    def _perform_jump(self):
+     if self.on_ground or self.coyote_timer > 0:
+         self.vel.y = JUMP_SPEED
+         self.on_ground = False
+         self.coyote_timer =0.0
+         self.jumps_left = 1
+         self.jump_buffer = 0.0
+         return True
+     if self.jumps_left > 0:
+         self.vel.y = JUMP_SPEED * 0.92
+         self.jumps_left -= 1
+         self.jump_buffer = 0.0
+         return True 
+     return False
+    def jump (self):
+        self.jump_buffer=JUMP_BUFFER_TIME
+        return self._perform_jump()
+
+
 
 
 
@@ -258,6 +281,7 @@ class Game:
 
     async def run(self):
         while True:
+            dt = min(self.clock.tick(FPS) / 1000.0, 0.05)
             for e in pygame.event.get():
                 if e.type == pygame.QUIT:
                     pygame.quit()
@@ -265,10 +289,9 @@ class Game:
                 if e.type == pygame.KEYDOWN:
                     self.on_key(e.key)
             if self.state == "play":
-                self.update()
+                self.update(dt)
             self.draw()
             pygame.display.flip()
-            self.clock.tick(FPS)
             await asyncio.sleep(0)  # Allow other tasks to run
 
     def on_key(self, key):
@@ -296,10 +319,10 @@ class Game:
             if key == pygame.K_RETURN:
                 self.state = "menu"
 
-    def update(self):
+    def update(self,dt=1/60):
         keys = pygame.key.get_pressed()
         p = self.player
-        p.update(keys, self.walls)
+        p.update(keys, self.walls, dt)
         p.rect.right = min(p.rect.right, self.level_w)
         for en in self.enemies:
             en.update(self.walls)
@@ -377,7 +400,8 @@ class Game:
             for i, label in enumerate(["Play", "Quit"]):
                 color = COIN_C if i == self.menu_index else WHITE
                 self.text(("> " if i == self.menu_index else "") + label, self.font, 280 + i * 50, color)
-            self.text("Arrows/WASD move - Space jump - Esc pause", self.font, 460, (180, 180, 200))
+            self.text("Move: A/D or arrows   Jump: Space/W/Up (double-jump!)", self.font, 450, (180, 180, 200))
+            self.text("Esc pauses during play", self.font, 485, (180, 180, 200))            
             self.text(f"High score: {self.save['high_score']}   Best level: {self.save['best_level']}", self.font, 400, COIN_C)
         elif self.state == "play":
             self.draw_world()
