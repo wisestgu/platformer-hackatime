@@ -1,8 +1,10 @@
+import math
 import sys
 import pygame
 import asyncio
 import os
 import json
+import random
 
 SAVE_KEY = "haven_hopper_save"
 SAVE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "save.json"     )
@@ -20,9 +22,11 @@ LEVELS = [
         "                                                  ",
         "                                                  ",
         "                                                  ",
+        "               B                   B              ",
         "                         C C C                    ",
         "                        #######             C     ",
         "             C                             ###   F",
+        "   P                 ###########K    C            ",
         "           #####               E               ###",
         "   P                 ###########     C            ",
         "#######    E    ###              ######  ^^  #####",
@@ -30,23 +34,27 @@ LEVELS = [
     ],
     [
         "                                                            ",
+        "                  B                    C          B         ",
         "                                       C                    ",
         "                          C C        #####                  ",
         "                         #####                    C        F",
         "             C    E                        E     ###    ####",
         "            ###########          C     #######              ",
+        "   P                     ^^    #####   K                    ",
         "   P                     ^^    #####                        ",
         "######         C      ######                  ^^^   ####    ",
         "######   E   #####                  E    ##########         ",
         "############################   #############################",
     ],
     [
+        "                  B                         B                         ", 
         "                                                                      ",
         "                                                        C  C  C     F ",
         "                                     C       E         ########   ####",
         "                     C   C          ###   #######                     ",
         "         E        ##########                          ^^              ",
         "     ###########                ^^           C      #####             ",
+        "  P                     E     #######K     #####                      ",
         "  P                     E     #######      #####                      ",
         "#####        C      ##########         ^^           E                 ",
         "#####   ^^  ###                     ########   ##########    ^^^      ",
@@ -116,6 +124,8 @@ class Player(pygame.sprite.Sprite):
         self.jumps_left =2
         self.coyote_timer =0.0
         self.jump_buffer =0.0
+        self.just_jumped = False
+        self.draw_w, self.draw_h = 30.0, 38.0
     def update(self,keys,walls,dt=1/60):
         self.vel.x=0
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
@@ -137,6 +147,7 @@ class Player(pygame.sprite.Sprite):
                     self.rect.left=w.right
 
         self.rect.y += self.vel.y
+        was_on_ground = self.on_ground
         self.on_ground = False
         for w in walls:
             if self.rect.colliderect   (w):
@@ -146,6 +157,10 @@ class Player(pygame.sprite.Sprite):
                         elif self.vel.y<0:
                              self.rect.top = w.bottom
                         self.vel.y =0
+        if self.on_ground and not was_on_ground:
+            self.draw_w, self.draw_h = 40.0, 28.0
+        self.draw_w += (30 -self.draw_w) * 0.2
+        self.draw_h += (38 - self.draw_h) * 0.2             
         if self.rect.left < 0:
              self.rect.left = 0                         
 
@@ -156,13 +171,24 @@ class Player(pygame.sprite.Sprite):
          self.coyote_timer =0.0
          self.jumps_left = 1
          self.jump_buffer = 0.0
+         self._start_jump()
          return True
      if self.jumps_left > 0:
          self.vel.y = JUMP_SPEED * 0.92
          self.jumps_left -= 1
          self.jump_buffer = 0.0
+         self._start_jump()
          return True 
      return False
+    def _start_jump(self):
+        self.just_jumped= True
+        self.draw_w , self.draw_h = 22.0,48.0
+
+    def draw(self, screen, cx):
+        w, h = int(self.draw_w), int(self.draw_h)
+        img = pygame.transform.scale(self.image,(w,h)) 
+        screen.blit(img,img.get_rect(midbottom=(self.rect.centerx - cx, self.rect.bottom)))
+           
     def jump (self):
         self.jump_buffer=JUMP_BUFFER_TIME
         return self._perform_jump()
@@ -189,7 +215,25 @@ class Enemy(pygame.sprite.Sprite):
          if hit or ledge:
               self.rect.x -=self.speed
               self.speed *=-1
+class Flyer(pygame.sprite.Sprite):
+    def __init__(self,x,y):
+        super().__init__()
+        self. image= pygame.Surface((34,24), pygame.SRCALPHA)
+        pygame.draw.ellipse(self.image,(120,60,160), (0,4,34,18))
+        pygame.draw.rect(self.image, WHITE, (9, 9, 5, 5))
+        pygame.draw.rect(self.image, WHITE, (20, 9, 5, 5))
+        self.rect = self.image.get_rect(center=(x+TILE //2, y+ TILE//2))
+        self.base_y = self.rect.y
+        self.t = random.uniform(0, 6.28)
+        self.speed = 1.5
+        self.start_x = x
 
+    def update(self,walls):
+        self.t += 0.05
+        self.rect.y = self.base_y + int(math.sin(self.t)* 30)
+        self.rect.x += self.speed
+        if abs(self.rect.x - self.start_x) > 80:
+            self.speed *= -1    
 class Coin(pygame.sprite.Sprite):
      def __init__(self,x,y):
           super().__init__()
@@ -198,6 +242,22 @@ class Coin(pygame.sprite.Sprite):
           pygame.draw.circle(self.image,(200,160,0),(10,10),9,2)
           self.rect =self.image.get_rect(center=(x+TILE//2, y+TILE//2))
 
+class Particle:
+    def __init__(self, x, y, vx, vy, life, color):
+        self.x, self.y = x, y
+        self.vx, self.vy = vx, vy
+        self.life = life
+        self.color = color
+
+    def update (self):
+        self.vy += 0.3
+        self.x += self.vx
+        self.y += self.vy
+        self.life -= 1
+
+    def draw (self, screen, cx):
+        size = max(1, self.life // 8 +1)
+        pygame.draw.rect(screen, self.color, (int(self.x-cx), int(self.y), size, size))  
 
 class Game:
     def __init__(self):
@@ -228,7 +288,9 @@ class Game:
         self.player = None
         self.cam_x = 0
         self.save = load_save()    
-        self.new_record = False    
+        self.new_record = False
+        self.particles = []
+        self.shake = 0    
     def record_score(self):
         self.new_record = self.score > self.save["high_score"]
         if self.new_record:
@@ -239,12 +301,22 @@ class Game:
         s = self.snd.get(name)
         if s:
             s.play()
-
+    def burst(self, x, y, colors, count=15, life=30):
+        for _ in range(count):
+            self.particles.append(Particle(
+                x, y,
+                random.uniform(-3,3), random.uniform(-5,1),
+                random.randint(life//2, life),
+                random.choice(colors)
+            ))
     def load_level(self, idx):
+        self.particles=[]
         self.walls, self.spikes = [], []
         self.enemies = pygame.sprite.Group()
         self.coins = pygame.sprite.Group()
         self.flag = None
+        self.checkpoints=[]
+        self.active_checkpoint=None
         rows = LEVELS[idx]
         self.level_w = len(rows[0]) * TILE
         for r, row in enumerate(rows):
@@ -257,6 +329,10 @@ class Game:
                     self.spawn = (x, y)
                 elif ch == "E":
                     self.enemies.add(Enemy(x, y))
+                elif ch == "B":
+                    self.enemies.add(Flyer(x, y))
+                elif ch == "K":
+                    self.checkpoints.append(pygame.Rect(x+15, y, 10, TILE))     
                 elif ch == "C":
                     self.coins.add(Coin(x, y))
                 elif ch == "^":
@@ -272,12 +348,15 @@ class Game:
 
     def die(self):
         self.play("hurt")
+        self.shake = 15
         self.lives -= 1
         if self.lives <= 0:
             self.state = "gameover"
             self.record_score()
         else:
-            self.load_level(self.level_index)
+            self.player.rect.topleft = self.spawn
+            self.player.vel.update(0,0)
+            self.cam_x= max(0, min(self.spawn[0] - WIDTH // 2, self.level_w- WIDTH))
 
     async def run(self):
         while True:
@@ -306,8 +385,7 @@ class Game:
                     sys.exit()
         elif self.state == "play":
             if key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w):
-                if self.player.jump():
-                    self.play("jump")
+                    self.player.jump()
             elif key == pygame.K_ESCAPE:
                 self.state = "paused"
         elif self.state == "paused":
@@ -324,16 +402,28 @@ class Game:
         p = self.player
         p.update(keys, self.walls, dt)
         p.rect.right = min(p.rect.right, self.level_w)
+        if p.just_jumped:
+            self.play("jump")
+            p.just_jumped= False
+        for pt in self.particles:
+            pt.update()
+        self.particles = [pt for pt in self.particles if pt.life > 0]        
+        if self.shake > 0:
+            self.shake -= 1
         for en in self.enemies:
             en.update(self.walls)
 
         for coin in pygame.sprite.spritecollide(p, self.coins, True):
             self.score += 10
             self.play("coin")
+            self.burst(coin.rect.centerx, coin.rect.centery,
+                       [COIN_C, WHITE, (255,250,180)], 14, 25)
 
         for en in pygame.sprite.spritecollide(p, self.enemies, False):
             if p.vel.y > 0 and p.rect.bottom - en.rect.top < 20:
                 en.kill()
+                self.burst(en.rect.centerx, en.rect.centery,
+                           [ENEMY_C, (255,120,90), (140,20,30)], 22, 35)
                 p.vel.y = JUMP_SPEED * 0.6
                 self.score += 50
                 self.play("stomp")
@@ -344,6 +434,12 @@ class Game:
         if p.rect.top > HEIGHT or any(p.rect.colliderect(s) for s in self.spikes):
             self.die()
             return
+        for k in self.checkpoints:
+            if k is not self.active_checkpoint and p.rect.colliderect(k):
+                self.active_checkpoint = k
+                self.spawn = (k.x - 15, k.bottom - p.rect.height)
+                self.play("coin")
+                self.burst(k.centerx, k.top, [FLAG_C, WHITE], 12, 25)
 
         if self.flag and p.rect.colliderect(self.flag):
             self.play("win")
@@ -367,6 +463,8 @@ class Game:
     def draw_world(self):
         self.screen.fill(SKY)
         cx = int(self.cam_x)
+        if self.shake > 0:
+            cx+= random.randint(-5, 5)
         for i in range(-1, 8):
             hx = i * 300 - (cx // 3) % 300
             pygame.draw.circle(self.screen, (120, 200, 140), (hx, HEIGHT + 60), 200)
@@ -385,11 +483,20 @@ class Game:
             pygame.draw.rect(self.screen, WHITE, f)
             pygame.draw.polygon(self.screen, FLAG_C, [(f.right, f.top), (f.right + 35, f.top + 15), (f.right, f.top + 30)])
 
+        for k in self.checkpoints:
+            r = k.move(-cx, 0)
+            color= FLAG_C if k is self.active_checkpoint else(200, 60, 60)
+            pygame.draw.rect(self.screen, WHITE, r)
+            pygame.draw.polygon(self.screen, color,
+                                [(r.right, r.top), (r.right + 22, r.top + 8), (r.right, r.top + 16)])
+          
         for grp in (self.coins, self.enemies):
             for sp in grp:
                 self.screen.blit(sp.image, sp.rect.move(-cx, 0))
 
-        self.screen.blit(self.player.image, self.player.rect.move(-cx, 0))
+        for pt in self.particles:
+            pt.draw(self.screen, cx)
+        self.player.draw(self.screen, cx)    
         hud = self.font.render(f"Score {self.score}   Lives {self.lives}   Level {self.level_index + 1}", True, WHITE)
         self.screen.blit(hud, (16, 12))
 
