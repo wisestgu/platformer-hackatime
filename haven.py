@@ -54,7 +54,34 @@ LEVELS = [
         "#####   ^^  ###                     ########   ##########    ^^^      ",
         "######################   ##############################################",
     ],
+    [
+        "                                                            ",
+        "                                                            ",
+        "                                               B            ",
+        "                              B                             ",
+        "                                    C C                     ",
+        "          CC           C C         #####         C          ",
+        "         ####         #####                     ###       F ",
+        "  P                                                    #####",
+        "#####    E         ^^   K             E     ^^^      ##     ",
+        "##############   #############    ##########################",
+    ],
+    [
+        "                                                                      ",
+        "                                                                      ",
+        "                            B                                         ",
+        "                                             C  B                     ",
+        "               B                C           ###           B           ",
+        "                               ###                           C        ",
+        "      C    ###                          ##                  ###      F",
+        "  P                                                                 ##",
+        "###            ^        E   K        ^^   E          K  ^^^    E  ####",
+        "##########    ####    ########     ############    ###################",
+    ],
 ]
+
+
+
 
 WHITE=(255,255,255)
 SKY=(110,180,255)
@@ -79,7 +106,7 @@ def make_sound(freq, ms, volume=0.3):
         return None
 
 def load_save():
-    default = {"high_score": 0, "best_level": 1}
+    default = {"high_score": 0, "best_level": 1, "best_times" : {}}
     try:
         if sys.platform == "emscripten":
             import platform
@@ -88,7 +115,7 @@ def load_save():
          with open(SAVE_FILE) as f:   
             raw = f.read() 
         data = json.loads(raw) if raw else {}
-        return{"high_score": data.get("high_score", 0), "best_level": data.get("best_level", 1)}    
+        return{"high_score": data.get("high_score", 0), "best_level": data.get("best_level", 1), "best_times" : data.get("best_times", {})}    
     except Exception:
            pass
     return default
@@ -284,7 +311,9 @@ class Game:
         self.save = load_save()    
         self.new_record = False
         self.particles = []
-        self.shake = 0    
+        self.shake = 0  
+        self.level_time = 0.0
+        self.new_best_timer = 0  
     def record_score(self):
         self.new_record = self.score > self.save["high_score"]
         if self.new_record:
@@ -334,6 +363,7 @@ class Game:
                 elif ch == "F":
                     self.flag = pygame.Rect(x + 15, y - TILE, 10, TILE * 2)
         self.cam_x = 0
+        self.level_time = 0.0
 
     def new_game(self):
         self.score, self.lives, self.level_index = 0, 3, 0
@@ -381,7 +411,7 @@ class Game:
             if key in (pygame.K_SPACE, pygame.K_UP, pygame.K_w):
                     self.player.jump()
             elif key == pygame.K_ESCAPE:
-                self.state = "paused"
+                self.state = "paused"      
         elif self.state == "paused":
             if key == pygame.K_ESCAPE:
                 self.state = "play"
@@ -394,6 +424,9 @@ class Game:
     def update(self,dt=1/60):
         keys = pygame.key.get_pressed()
         p = self.player
+        self.level_time += dt
+        if self.new_best_timer > 0:
+            self.new_best_timer -= 1
         p.update(keys, self.walls, dt)
         p.rect.right = min(p.rect.right, self.level_w)
         if p.just_jumped:
@@ -438,7 +471,13 @@ class Game:
         if self.flag and p.rect.colliderect(self.flag):
             self.play("win")
             self.score += 100
-            self.level_index += 1
+            key = str(self.level_index + 1)
+            best = self.save ["best_times"].get(key)
+            if best is None or self.level_time < best :
+                self.save ["best_times"][key] = round(self.level_time, 2)
+                write_save(self.save)
+                self.new_best_timer = 180
+            self.level_index += 1    
             if self.level_index >= len(LEVELS):
                 self.state = "win"
                 self.record_score()
@@ -493,6 +532,12 @@ class Game:
         self.player.draw(self.screen, cx)    
         hud = self.font.render(f"Score {self.score}   Lives {self.lives}   Level {self.level_index + 1}", True, WHITE)
         self.screen.blit(hud, (16, 12))
+        best = self.save["best_times"].get(str(self.level_index + 1))
+        best_txt = f"   Best {best:.2f}" if best is not None else ""
+        timer = self.font.render(f"Time {self.level_time:.2f}{best_txt}", True, WHITE)
+        self.screen.blit(timer, (WIDTH - timer.get_width() - 16, 12))
+        if self.new_best_timer > 0:
+            self.text("NEW BEST TIME!", self.big, 120, COIN_C)
 
     def draw(self):
         if self.state == "menu":
